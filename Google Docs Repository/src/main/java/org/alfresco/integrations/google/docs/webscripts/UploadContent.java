@@ -120,6 +120,11 @@ public class UploadContent
                 try
                 {
                     file = googledocsService.getDriveFile(credential, nodeRef);
+
+                    if (file == null)
+                    {
+                        throw new GoogleDocsServiceException("File is not on Google Server. Uploading local copy");
+                    }
                 }
                 catch(GoogleDocsServiceException gdse)
                 {

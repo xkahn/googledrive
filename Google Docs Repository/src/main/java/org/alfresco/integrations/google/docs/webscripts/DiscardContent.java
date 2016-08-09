@@ -232,7 +232,7 @@ public class DiscardContent
             }
             catch (GoogleDocsServiceException gdse)
             {
-                if (gdse.getPassedStatusCode() == HttpStatus.SC_NOT_FOUND)
+                if (gdse.getPassedStatusCode() == HttpStatus.SC_NOT_FOUND || (gdse.getPassedStatusCode() == HttpStatus.SC_INTERNAL_SERVER_ERROR && gdse.getCause() instanceof GoogleJsonResponseException))
                 {
                     // This code will make changes after the rollback has occurred to clean up the node: remove the lock and the Google
                     // Docs aspect. If it has the temporary aspect it will also remove the node from Alfresco

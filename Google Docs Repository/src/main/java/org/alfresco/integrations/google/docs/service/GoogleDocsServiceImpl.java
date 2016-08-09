@@ -2141,6 +2141,61 @@ public class GoogleDocsServiceImpl
     }
 
 
+    public boolean driveFileExists(Credential credential, String resourceID)
+            throws GoogleDocsServiceException,
+            GoogleDocsAuthenticationException,
+            GoogleDocsRefreshTokenException,
+            IOException
+    {
+        boolean exists = false;
+
+        //Get the users drive credential if not provided;
+        credential = credential == null ? getCredential() : credential;
+        Drive drive = getDriveApi(credential);
+
+        File file = null;
+
+        try
+        {
+            file = drive.files().get(resourceID.substring(resourceID.lastIndexOf(':') + 1)).execute();
+
+            if (file != null)
+            {
+                exists = true;
+            }
+        }
+        catch (GoogleJsonResponseException e)
+        {
+            if (e.getStatusCode() != HttpStatus.SC_NOT_FOUND || e.getStatusCode() != HttpStatus.SC_INTERNAL_SERVER_ERROR)
+            {
+                throw new GoogleDocsServiceException(e, e.getStatusCode());
+            }
+        }
+
+        return exists;
+    }
+
+    public boolean driveFileExists(Credential credential, NodeRef nodeRef)
+            throws GoogleDocsServiceException,
+            GoogleDocsAuthenticationException,
+            GoogleDocsRefreshTokenException,
+            IOException
+    {
+        //Get the users drive credential if not provided;
+        credential = credential == null ? getCredential() : credential;
+
+        String resourceID = nodeService.getProperty(nodeRef, GoogleDocsModel.PROP_RESOURCE_ID).toString();
+        log.debug("Node " + nodeRef + " maps to Resource ID " + resourceID.substring(resourceID.lastIndexOf(':') + 1));
+
+        if (resourceID == null)
+        {
+            throw new NotInGoogleDriveException(nodeRef);
+        }
+
+        return driveFileExists(credential, resourceID.substring(resourceID.lastIndexOf(':') + 1));
+    }
+
+
     private String getExportLink(File file, String mimetype)
     {
         Map<String, String> exportLinks = file.getExportLinks();
