@@ -1,5 +1,6 @@
 package org.alfresco.integrations.google.docs.service;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -56,6 +57,7 @@ import com.google.api.client.googleapis.auth.oauth2.GoogleClientSecrets;
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.jackson2.JacksonFactory;
+import com.sun.xml.internal.ws.policy.privateutil.PolicyUtils;
 
 /**
  * Created by Lucian Tuca on 17/08/16.
@@ -209,6 +211,32 @@ import com.google.api.client.json.jackson2.JacksonFactory;
         for (String key : importFormats.keySet()) {
             assertTrue(googleDocsService.isImportable(key));
         }
+    }
+
+    @Test public void testGetAuthenticateUrlBadFlow() throws IOException
+    {
+        String authenticateUrl = googleDocsService.getAuthenticateUrl(null);
+        assertNull(authenticateUrl);
+    }
+
+    @Test public void testGetAuthenticateUrlHappyFlowBlankGoogleName() throws Exception
+    {
+        String state = "state";
+        String expectedUrl = "https://accounts.google.com/o/oauth2/auth?access_type=offline&approval_prompt=auto&client_id=fake_id.apps.googleusercontent.com&redirect_uri=http://www.alfresco.com/google-auth-return.html&response_type=code&scope=https://docs.google.com/feeds/%20https://www.googleapis.com/auth/drive.file%20https://www.googleapis.com/auth/drive%20https://www.googleapis.com/auth/userinfo.profile%20https://www.googleapis.com/auth/userinfo.email&state=state";
+        doReturn("").when(googleDocsService, "getGoogleUserName");
+
+        String authenticateUrl = googleDocsService.getAuthenticateUrl(state);
+        assertEquals(expectedUrl, authenticateUrl);
+    }
+
+    @Test public void testGetAuthenticateUrlHappyFlowExistingGoogleName() throws Exception
+    {
+        String state = "state";
+        String expectedUrl = "https://accounts.google.com/o/oauth2/auth?access_type=offline&approval_prompt=auto&client_id=fake_id.apps.googleusercontent.com&redirect_uri=http://www.alfresco.com/google-auth-return.html&response_type=code&scope=https://docs.google.com/feeds/%20https://www.googleapis.com/auth/drive.file%20https://www.googleapis.com/auth/drive%20https://www.googleapis.com/auth/userinfo.profile%20https://www.googleapis.com/auth/userinfo.email&state=state&login_hint=username";
+        doReturn("username").when(googleDocsService, "getGoogleUserName");
+
+        String authenticateUrl = googleDocsService.getAuthenticateUrl(state);
+        assertEquals(expectedUrl, authenticateUrl);
     }
 
 }
