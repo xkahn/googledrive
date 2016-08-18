@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:util="http://www.springframework.org/schema/util"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd http://www.springframework.org/schema/util http://www.springframework.org/schema/util/spring-util.xsd">
+
+
+    <util:map id="importFormats" map-class="java.util.HashMap">
+        <entry
+                key="application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                value="presentation"/>
+        <entry key="application/vnd.ms-powerpoint" value="presentation"/>
+        <entry key="text/tab-separated-values" value="spreadsheet"/>
+        <entry key="application/vnd.sun.xml.writer" value="document"/>
+        <entry key="application/vnd.ms-excel" value="spreadsheet"/>
+        <entry
+                key="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                value="spreadsheet"/>
+        <entry key="application/rtf" value="document"/>
+        <entry key="application/msword" value="document"/>
+        <entry key="application/vnd.oasis.opendocument.text" value="document"/>
+        <entry key="text/plain" value="document"/>
+        <entry key="text/csv" value="spreadsheet"/>
+        <entry key="application/x-vnd.oasis.opendocument.spreadsheet" value="spreadsheet"/>
+        <entry key="application/vnd.oasis.opendocument.spreadsheet" value="spreadsheet"/>
+        <entry
+                key="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                value="document"/>
+    </util:map>
+
+    <util:map id="exportFormats" map-class="java.util.HashMap">
+        <entry key="document">
+            <map>
+                <entry key="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                       value="docx"/>
+                <entry key="application/msword" value="doc"/>
+                <entry key="application/rtf" value="rtf"/>
+                <entry key="text/plain" value="txt"/>
+                <entry key="application/vnd.oasis.opendocument.text" value="odt"/>
+                <entry key="text/rtf" value="rtf"/>
+            </map>
+        </entry>
+        <entry key="spreadsheet">
+            <map>
+                <entry key="application/x-vnd.oasis.opendocument.spreadsheet" value="ods"/>
+                <!-- GOOGLEDOCS-71 Work around Alfresco only supporting this mimetype for ODS OpenOffice SpreadSheets -->
+                <entry key="application/vnd.oasis.opendocument.spreadsheet" value="ods"/>
+                <entry key="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                       value="xlsx"/>
+                <entry key="application/vnd.ms-excel" value="xls"/>
+                <entry key="text/tab-separated-values" value="tsv"/>
+                <entry key="text/csv" value="csv"/>
+            </map>
+        </entry>
+        <entry key="presentation">
+            <map>
+                <entry key="application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                       value="pptx"/>
+                <entry key="application/vnd.ms-powerpoint" value="ppt"/>
+            </map>
+        </entry>
+    </util:map>
+
+    <util:map id="upgradeMappings" map-class="java.util.HashMap">
+        <entry key="application/vnd.sun.xml.writer"
+               value="application/vnd.oasis.opendocument.text"/>
+        <entry key="application/vnd.ms-excel"
+               value="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>
+        <entry key="application/msword"
+               value="application/vnd.openxmlformats-officedocument.wordprocessingml.document"/>
+        <entry key="application/vnd.ms-powerpoint"
+               value="application/vnd.openxmlformats-officedocument.presentationml.presentation"/>
+    </util:map>
+
+
+</beans>

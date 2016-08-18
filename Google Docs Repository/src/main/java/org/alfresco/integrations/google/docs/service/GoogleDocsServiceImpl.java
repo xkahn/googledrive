@@ -239,6 +239,21 @@ public class GoogleDocsServiceImpl
         this.siteService = siteService;
     }
 
+    public void setClientSecrets(GoogleClientSecrets clientSecrets)
+    {
+        this.clientSecrets = clientSecrets;
+    }
+
+    public void setHttpTransport(HttpTransport httpTransport)
+    {
+        this.httpTransport = httpTransport;
+    }
+
+    public void setJsonFactory(JacksonFactory jsonFactory)
+    {
+        this.jsonFactory = jsonFactory;
+    }
+
 
     public void setTenantService(TenantService tenantService)
     {
