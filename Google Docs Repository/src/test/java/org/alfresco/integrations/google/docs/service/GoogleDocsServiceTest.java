@@ -12,6 +12,7 @@ import static org.powermock.api.mockito.PowerMockito.doReturn;
 import static org.powermock.api.mockito.PowerMockito.doThrow;
 import static org.powermock.api.mockito.PowerMockito.mock;
 import static org.powermock.api.mockito.PowerMockito.when;
+import static org.powermock.api.mockito.PowerMockito.whenNew;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -45,7 +46,6 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.Spy;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 import org.powermock.modules.junit4.PowerMockRunnerDelegate;
@@ -57,13 +57,17 @@ import com.google.api.client.googleapis.auth.oauth2.GoogleClientSecrets;
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.jackson2.JacksonFactory;
-import com.sun.xml.internal.ws.policy.privateutil.PolicyUtils;
+import com.google.api.services.oauth2.Oauth2;
+import com.google.api.services.oauth2.model.Userinfoplus;
 
 /**
  * Created by Lucian Tuca on 17/08/16.
  */
-@RunWith(PowerMockRunner.class) @PowerMockRunnerDelegate(SpringJUnit4ClassRunner.class) @ContextConfiguration("classpath:test-context.xml") @PrepareForTest({
-    GoogleDocsServiceImpl.class, GoogleClientSecrets.class }) public class GoogleDocsServiceTest
+@RunWith(PowerMockRunner.class)
+@PowerMockRunnerDelegate(SpringJUnit4ClassRunner.class)
+@ContextConfiguration("classpath:test-context.xml")
+@PrepareForTest({GoogleDocsServiceImpl.class, GoogleClientSecrets.class, Oauth2.Builder.class, Oauth2.Userinfo.class, Oauth2.Userinfo.Get.class, Userinfoplus.class})
+public class GoogleDocsServiceTest
 {
     @Mock private OAuth2CredentialsStoreService oauth2CredentialsStoreService;
     @Mock private FileFolderService fileFolderService;
@@ -88,7 +92,7 @@ import com.sun.xml.internal.ws.policy.privateutil.PolicyUtils;
     @Mock private GoogleClientSecrets clientSecrets = GoogleClientSecrets.load(jsonFactory,
         new InputStreamReader(this.getClass().getResourceAsStream("/client_secret.json")));
 
-    @Spy @InjectMocks private GoogleDocsServiceImpl googleDocsService = new GoogleDocsServiceImpl();
+    @InjectMocks private GoogleDocsServiceImpl googleDocsService = new GoogleDocsServiceImpl();
 
     public GoogleDocsServiceTest() throws IOException
     {
@@ -116,6 +120,15 @@ import com.sun.xml.internal.ws.policy.privateutil.PolicyUtils;
     @Test public void testGetCredentialHappyFlow() throws Exception
     {
         OAuth2CredentialsInfo credentialsInfo = mock(OAuth2CredentialsInfoImpl.class);
+        Credential.Builder credentialBuilder = mock(Credential.Builder.class);
+        Credential credential = mock(Credential.class);
+
+        Oauth2.Builder oauth2Builder = mock(Oauth2.Builder.class);
+        Oauth2.Userinfo.Get oauth2UserInfoGet = mock(Oauth2.Userinfo.Get.class);
+        Oauth2 userInfoService = mock(Oauth2.class);
+        Oauth2.Userinfo oauth2Userinfo = mock(Oauth2.Userinfo.class);
+        Userinfoplus userinfoplus = mock(Userinfoplus.class);
+
 
         when(oauth2CredentialsStoreService.getPersonalOAuth2Credentials(anyString()))
             .thenReturn(credentialsInfo);
@@ -123,7 +136,18 @@ import com.sun.xml.internal.ws.policy.privateutil.PolicyUtils;
         when(credentialsInfo.getOAuthRefreshToken()).thenReturn("refresh_token");
         when(credentialsInfo.getOAuthTicketExpiresAt())
             .thenReturn(new Date(1597670820000L)); // 8/17/20 1:27 PM
-        doNothing().when(googleDocsService, "testConnection", anyObject());
+
+        // Mock credential obtaining
+        whenNew(Credential.Builder.class).withAnyArguments().thenReturn(credentialBuilder);
+        when(credentialBuilder.build()).thenReturn(credential);
+
+        // Mock testConnection
+        whenNew(Oauth2.Builder.class).withAnyArguments().thenReturn(oauth2Builder);
+        when(oauth2Builder.build()).thenReturn(userInfoService);
+        when(userInfoService.userinfo()).thenReturn(oauth2Userinfo);
+        when(oauth2Userinfo.get()).thenReturn(oauth2UserInfoGet);
+        when(oauth2UserInfoGet.execute()).thenReturn(userinfoplus);
+
 
         Credential retrievedCredential = googleDocsService.getCredential();
         assertNotNull(retrievedCredential);
@@ -137,7 +161,7 @@ import com.sun.xml.internal.ws.policy.privateutil.PolicyUtils;
         when(oauth2CredentialsStoreService.getPersonalOAuth2Credentials(anyString()))
             .thenReturn(credentialsInfo);
 
-        when(credentialsInfo.getOAuthAccessToken()).thenReturn("access_token");
+        doSomeStuff(credentialsInfo);
         when(credentialsInfo.getOAuthRefreshToken()).thenReturn("refresh_token");
         when(credentialsInfo.getOAuthTicketExpiresAt())
             .thenReturn(new Date(1597670820000L)); // 8/17/20 1:27 PM
@@ -146,6 +170,11 @@ import com.sun.xml.internal.ws.policy.privateutil.PolicyUtils;
 
         Credential retrievedCredential = googleDocsService.getCredential();
         assertNotNull(retrievedCredential);
+    }
+
+    private void doSomeStuff(OAuth2CredentialsInfo credentialsInfo)
+    {
+        when(credentialsInfo.getOAuthAccessToken()).thenReturn("access_token");
     }
 
     @Test public void testIsAuthenticatedBadFlowNullCredentialInfo()
@@ -239,4 +268,21 @@ import com.sun.xml.internal.ws.policy.privateutil.PolicyUtils;
         assertEquals(expectedUrl, authenticateUrl);
     }
 
+    //    @Test public void testCompleteAuthenticationBadFlow() throws Exception
+    //    {
+    //        googleDocsService.completeAuthentication("string");
+    //    }
+
+    @Test public void testIsAutheticatedHappyFlow() throws Exception
+    {
+        OAuth2CredentialsInfo credentialsInfo = mock(OAuth2CredentialsInfoImpl.class);
+
+        when(oauth2CredentialsStoreService.getPersonalOAuth2Credentials(anyString()))
+            .thenReturn(credentialsInfo);
+        when(googleDocsService.getCredential()).thenReturn(null);
+        //        doThrow(new IOException()).when(googleDocsService).getCredential();
+        //        doReturn(null).when(googleDocsService).isAuthenticated();
+
+        boolean authenticated = googleDocsService.isAuthenticated();
+    }
 }
