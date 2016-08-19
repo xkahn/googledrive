@@ -21,7 +21,6 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.Date;
@@ -166,7 +165,6 @@ public class GoogleDocsServiceImpl
     // Activities
     private static final String FILE_ADDED   = "org.alfresco.documentlibrary.file-added";
     private static final String FILE_UPDATED = "org.alfresco.documentlibrary.file-updated";
-
 
     public void setImportFormats(Map<String, String> importFormats)
     {
@@ -320,12 +318,22 @@ public class GoogleDocsServiceImpl
         this.enabled = enabled;
     }
 
+    public void init()
+        throws IOException
+    {
+        httpTransport = new NetHttpTransport();
+        jsonFactory = new JacksonFactory();
+
+        clientSecrets = GoogleClientSecrets.load(jsonFactory, new InputStreamReader(GoogleDocsServiceImpl.class.getResourceAsStream("client_secret.json")));
+    }
+
+    // Required fields from the response
+    private static final String ALL_PROPERTY_FIELDS = "*";
 
     public boolean isEnabled()
     {
         return enabled;
     }
-
 
     /**
      * Can the mimetype be imported from Google Docs to Alfresco?
@@ -349,7 +357,6 @@ public class GoogleDocsServiceImpl
     {
         return importFormats.get(mimetype);
     }
-
 
     /**
      * @param mimetype
@@ -436,15 +443,11 @@ public class GoogleDocsServiceImpl
 
     public String getContentType(NodeRef nodeRef)
     {
-        String contentType = null;
-
+        String contentType;
         String mimetype = fileFolderService.getFileInfo(nodeRef).getContentData().getMimetype();
-
         contentType = importFormats.get(mimetype);
-
         return contentType;
     }
-
 
     /**
      * @param mimeType Mimetype of the Node
@@ -472,17 +475,6 @@ public class GoogleDocsServiceImpl
 
         return mimeType;
     }
-
-
-    public void init()
-            throws IOException
-    {
-        httpTransport = new NetHttpTransport();
-        jsonFactory = new JacksonFactory();
-
-        clientSecrets = GoogleClientSecrets.load(jsonFactory, new InputStreamReader(GoogleDocsServiceImpl.class.getResourceAsStream("client_secret.json")));
-    }
-
 
     private GoogleAuthorizationCodeFlow getFlow()
             throws IOException
@@ -518,19 +510,7 @@ public class GoogleDocsServiceImpl
             {
                 if (e.getStatusCode() == HttpStatus.SC_UNAUTHORIZED)
                 {
-                    try
-                    {
-                        credential = refreshAccessToken();
-                        testConnection(credential);
-                    }
-                    catch (GoogleDocsRefreshTokenException gdrte)
-                    {
-                        throw gdrte;
-                    }
-                    catch (GoogleDocsServiceException gdse)
-                    {
-                        throw gdse;
-                    }
+                    credential = getCredentialAfterRefresh();
                 }
                 else
                 {
@@ -539,19 +519,7 @@ public class GoogleDocsServiceImpl
             }
             catch (TokenResponseException e)
             {
-                try
-                {
-                    credential = refreshAccessToken();
-                    testConnection(credential);
-                }
-                catch (GoogleDocsRefreshTokenException gdrte)
-                {
-                    throw gdrte;
-                }
-                catch (GoogleDocsServiceException gdse)
-                {
-                    throw gdse;
-                }
+                credential = getCredentialAfterRefresh();
             }
             catch (GoogleDocsServiceException e)
             {
@@ -563,6 +531,15 @@ public class GoogleDocsServiceImpl
         return credential;
     }
 
+    private Credential getCredentialAfterRefresh()
+        throws GoogleDocsAuthenticationException, IOException, GoogleDocsRefreshTokenException,
+        GoogleDocsServiceException
+    {
+        Credential credential;
+        credential = refreshAccessToken();
+        testConnection(credential);
+        return credential;
+    }
 
     private void testConnection(Credential credential)
             throws GoogleJsonResponseException,
@@ -573,7 +550,11 @@ public class GoogleDocsServiceImpl
         Userinfoplus userInfo = null;
         try
         {
-            userInfo = userInfoService.userinfo().get().execute();
+            userInfo = userInfoService
+                .userinfo()
+                .get()
+                .setFields(ALL_PROPERTY_FIELDS)
+                .execute();
         }
         catch (TokenResponseException e)
         {
@@ -602,8 +583,8 @@ public class GoogleDocsServiceImpl
 
         if (credentialInfo.getOAuthRefreshToken() != null)
         {
-            Credential credential = null;
-            boolean success = false;
+            Credential credential;
+            boolean success;
             try
             {
                 credential = new Credential.Builder(BearerToken.authorizationHeaderAccessMethod()).setJsonFactory(jsonFactory).setTransport(httpTransport).setClientAuthentication(new ClientParametersAuthentication(clientSecrets.getDetails().getClientId(), clientSecrets.getDetails().getClientSecret())).setTokenServerEncodedUrl(clientSecrets.getDetails().getTokenUri()).build();
@@ -665,13 +646,20 @@ public class GoogleDocsServiceImpl
         }
     }
 
+    private Drive getDriveApiWithCredentialCheck(Credential credential)
+        throws GoogleDocsAuthenticationException, GoogleDocsServiceException, IOException,
+        GoogleDocsRefreshTokenException
+    {
+        // Get the users drive credential if not provided;
+        credential = credential == null ? getCredential() : credential;
+        return getDriveApi(credential);
+    }
 
     private Drive getDriveApi(Credential credential)
     {
         log.debug("Initiating Google Drive Connection");
         return new Drive.Builder(new NetHttpTransport(), new JacksonFactory(), null).setHttpRequestInitializer(credential).setApplicationName(GoogleDocsConstants.APPLICATION_NAME).build();
     }
-
 
     /**
      * Has the current user authenticated to Google Drive?
@@ -746,9 +734,12 @@ public class GoogleDocsServiceImpl
             throws GoogleDocsServiceException,
             IOException
     {
-        boolean authenticationComplete = false;
+        boolean authenticationComplete;
 
-        GoogleTokenResponse response = getFlow().newTokenRequest(authorizationCode).setRedirectUri(GoogleDocsConstants.REDIRECT_URI).execute();
+        GoogleTokenResponse response = getFlow()
+            .newTokenRequest(authorizationCode)
+            .setRedirectUri(GoogleDocsConstants.REDIRECT_URI)
+            .execute();
 
         try
         {
@@ -803,14 +794,11 @@ public class GoogleDocsServiceImpl
             GoogleDocsRefreshTokenException,
             IOException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-
-        Drive drive = getDriveApi(credential);
         log.debug("Create Google Document for node " + nodeRef);
 
-        File file = null;
+        // New file name
         String name = fileFolderService.getFileInfo(nodeRef).getName();
+
         // To be editable a new document must use the Google Document mimetype.
         String mimetype = GoogleDocsConstants.DOCUMENT_MIMETYPE;
 
@@ -820,25 +808,16 @@ public class GoogleDocsServiceImpl
             name = GoogleDocsConstants.NEW_DOCUMENT_NAME;
         }
 
-        try
-        {
-            // Create the working Directory
-            File workingDir = createWorkingDirectory(credential, nodeRef);
+        // Create the working Directory
+        File workingDir = createWorkingDirectory(credential, nodeRef);
 
-            // Create the Google Document in the working directory
-            file = new File().setParents(Collections.singletonList(workingDir.getId()));
-            file = drive.files().create(file).execute();
+        // Create document on Drive
+        File file = createFileOnDrive(credential, workingDir.getId(), name, "", mimetype);
 
-            // Add temporary Node (with Content) to repository.
-            ContentWriter writer = fileFolderService.getWriter(nodeRef);
-            writer.setMimetype(MimetypeMap.MIMETYPE_OPENXML_WORDPROCESSING);
-            writer.putContent(newDocument.getInputStream());
-
-        }
-        catch (IOException ioe)
-        {
-            throw ioe;
-        }
+        // Add temporary Node (with Content) to repository.
+        ContentWriter writer = fileFolderService.getWriter(nodeRef);
+        writer.setMimetype(MimetypeMap.MIMETYPE_OPENXML_WORDPROCESSING);
+        writer.putContent(newDocument.getInputStream());
 
         return file;
     }
@@ -858,15 +837,10 @@ public class GoogleDocsServiceImpl
             GoogleDocsRefreshTokenException,
             IOException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-
-        Drive drive = getDriveApi(credential);
-
         log.debug("Create Google Spreadsheet for node " + nodeRef);
 
-        File file = null;
         String name = fileFolderService.getFileInfo(nodeRef).getName();
+
         // To be editable, a new spreadsheet must use the Google Spreadsheet mimetype.
         String mimetype = GoogleDocsConstants.SPREADSHEET_MIMETYPE;
 
@@ -876,25 +850,16 @@ public class GoogleDocsServiceImpl
             name = GoogleDocsConstants.NEW_SPREADSHEET_NAME;
         }
 
-        try
-        {
-            // Create the working Directory
-            File workingDir = createWorkingDirectory(credential, nodeRef);
+        // Create the working Directory
+        File workingDir = createWorkingDirectory(credential, nodeRef);
 
-            // Create the Google Spreadsheet in the working directory
-            file = new File().setParents(Arrays.asList(workingDir.getId()));
-            file = drive.files().create(file).execute();
+        // Create the Google Spreadsheet in the working directory
+        File file = createFileOnDrive(credential, workingDir.getId(), name, "", mimetype);
 
-            // Add temporary Node (with Content) to the repository
-            ContentWriter writer = fileFolderService.getWriter(nodeRef);
-            writer.setMimetype(MimetypeMap.MIMETYPE_OPENXML_SPREADSHEET);
-            writer.putContent(newSpreadsheet.getInputStream());
-
-        }
-        catch (IOException ioe)
-        {
-            throw ioe;
-        }
+        // Add temporary Node (with Content) to the repository
+        ContentWriter writer = fileFolderService.getWriter(nodeRef);
+        writer.setMimetype(MimetypeMap.MIMETYPE_OPENXML_SPREADSHEET);
+        writer.putContent(newSpreadsheet.getInputStream());
 
         return file;
     }
@@ -914,14 +879,8 @@ public class GoogleDocsServiceImpl
             GoogleDocsRefreshTokenException,
             IOException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-
-        Drive drive = getDriveApi(credential);
-
         log.debug("Create Google Presentation for node " + nodeRef);
 
-        File file = null;
         String name = fileFolderService.getFileInfo(nodeRef).getName();
         // To be editable a new presentation must use the Google Presentation mimetype
         String mimetype = GoogleDocsConstants.PRESENTATION_MIMETYPE;
@@ -932,25 +891,16 @@ public class GoogleDocsServiceImpl
             name = GoogleDocsConstants.NEW_PRESENTATION_NAME;
         }
 
-        try
-        {
-            // Create the working Directory
-            File workingDir = createWorkingDirectory(credential, nodeRef);
+        // Create the working Directory
+        File workingDir = createWorkingDirectory(credential, nodeRef);
 
-            // Create the Google Document in the working directory
-            file = new File().setParents(Arrays.asList(workingDir.getId()));
-            file = drive.files().create(file).execute();
+        // Create the Google Document in the working directory
+        File file = createFileOnDrive(credential, workingDir.getId(), name, "", mimetype);
 
-            // Add temporary Node (with Content) to repository
-            ContentWriter writer = fileFolderService.getWriter(nodeRef);
-            writer.setMimetype(MimetypeMap.MIMETYPE_OPENXML_PRESENTATION);
-            writer.putContent(newPresentation.getInputStream());
-
-        }
-        catch (IOException ioe)
-        {
-            throw ioe;
-        }
+        // Add temporary Node (with Content) to repository
+        ContentWriter writer = fileFolderService.getWriter(nodeRef);
+        writer.setMimetype(MimetypeMap.MIMETYPE_OPENXML_PRESENTATION);
+        writer.putContent(newPresentation.getInputStream());
 
         return file;
     }
@@ -973,11 +923,7 @@ public class GoogleDocsServiceImpl
             GoogleDocsRefreshTokenException
     {
         log.debug("Get Google Document for node: " + nodeRef);
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-        Drive drive = getDriveApi(credential);
-
-        getDriveFileContent(credential, nodeRef, resourceID, removeFromDrive, drive);
+        getDriveFileContent(credential, nodeRef, resourceID, removeFromDrive);
     }
 
 
@@ -992,9 +938,6 @@ public class GoogleDocsServiceImpl
             IOException,
             GoogleDocsRefreshTokenException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-
         String resourceID = nodeService.getProperty(nodeRef, GoogleDocsModel.PROP_RESOURCE_ID).toString();
         if (resourceID == null)
         {
@@ -1011,9 +954,6 @@ public class GoogleDocsServiceImpl
             IOException,
             GoogleDocsRefreshTokenException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-
         String resourceID = nodeService.getProperty(nodeRef, GoogleDocsModel.PROP_RESOURCE_ID).toString();
         if (resourceID == null)
         {
@@ -1041,18 +981,15 @@ public class GoogleDocsServiceImpl
             IOException
     {
         log.debug("Get Google Spreadsheet for node: " + nodeRef);
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-        Drive drive = getDriveApi(credential);
-
-        getDriveFileContent(credential, nodeRef, resourceID, removeFromDrive, drive);
+        getDriveFileContent(credential, nodeRef, resourceID, removeFromDrive);
     }
 
     private void getDriveFileContent(Credential credential, NodeRef nodeRef, String resourceID,
-        boolean removeFromDrive, Drive drive)
+        boolean removeFromDrive)
         throws IOException, GoogleDocsAuthenticationException, GoogleDocsRefreshTokenException,
         GoogleDocsServiceException
     {
+        Drive drive = getDriveApiWithCredentialCheck(credential);
         try
         {
             String mimetype = null;
@@ -1062,7 +999,10 @@ public class GoogleDocsServiceImpl
                       + "; Mimetype of Google Doc: " + mimetype);
             log.debug("Export format: " + mimetype);
 
-            File file = drive.files().get(resourceID.substring(resourceID.lastIndexOf(':') + 1)).execute();
+            File file = drive.files()
+                .get(resourceID.substring(resourceID.lastIndexOf(':') + 1))
+                .setFields(ALL_PROPERTY_FIELDS)
+                .execute();
 
             Drive.Files.Export export = drive.files().export(file.getId(), mimetype);
             InputStream inputStream = export.executeMediaAsInputStream();
@@ -1109,9 +1049,6 @@ public class GoogleDocsServiceImpl
             GoogleDocsRefreshTokenException,
             IOException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-
         String resourceID = nodeService.getProperty(nodeRef, GoogleDocsModel.PROP_RESOURCE_ID).toString();
         if (resourceID == null)
         {
@@ -1134,15 +1071,11 @@ public class GoogleDocsServiceImpl
             IOException,
             GoogleDocsRefreshTokenException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-
         String resourceID = nodeService.getProperty(nodeRef, GoogleDocsModel.PROP_RESOURCE_ID).toString();
         if (resourceID == null)
         {
             throw new NotInGoogleDriveException(nodeRef);
         }
-
         getSpreadSheet(credential, nodeRef, resourceID.substring(resourceID.lastIndexOf(':') + 1), false);
     }
 
@@ -1164,11 +1097,7 @@ public class GoogleDocsServiceImpl
             IOException
     {
         log.debug("Get Google Presentation for node: " + nodeRef);
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-        Drive drive = getDriveApi(credential);
-
-        getDriveFileContent(credential, nodeRef, resourceID, removeFromDrive, drive);
+        getDriveFileContent(credential, nodeRef, resourceID, removeFromDrive);
     }
 
 
@@ -1178,9 +1107,6 @@ public class GoogleDocsServiceImpl
             IOException,
             GoogleDocsRefreshTokenException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-
         String resourceID = nodeService.getProperty(nodeRef, GoogleDocsModel.PROP_RESOURCE_ID).toString();
         if (resourceID == null)
         {
@@ -1203,9 +1129,6 @@ public class GoogleDocsServiceImpl
             IOException,
             GoogleDocsRefreshTokenException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-
         String resourceID = nodeService.getProperty(nodeRef, GoogleDocsModel.PROP_RESOURCE_ID).toString();
         if (resourceID == null)
         {
@@ -1228,9 +1151,7 @@ public class GoogleDocsServiceImpl
             IOException
     {
         log.debug("Upload " + nodeRef + " to Google");
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-        Drive drive = getDriveApi(credential);
+        Drive drive = getDriveApiWithCredentialCheck(credential);
 
         File file = null;
 
@@ -1252,10 +1173,17 @@ public class GoogleDocsServiceImpl
             // Create the working Directory
             File workingDir = createWorkingDirectory(credential, nodeRef);
 
-            file = new File().setParents(Collections.singletonList(workingDir.getId()));
+            List<String> parents = Collections.singletonList(workingDir.getId());
+            file = new File()
+                .setParents(parents)
+                .setName(fileInfo.getName())
+                .setMimeType(mimetype);
 
             FileContent fileContent = new FileContent(mimetype, f);
-            file = drive.files().create(file, fileContent).execute();
+            file = drive.files()
+                .create(file, fileContent)
+                .setFields(ALL_PROPERTY_FIELDS)
+                .execute();
         }
         catch (IOException ioe)
         {
@@ -1305,11 +1233,7 @@ public class GoogleDocsServiceImpl
         if (isGoogleDocsLockOwner(nodeRef) || authorityService.hasAdminAuthority()
             || isSiteManager(nodeRef, AuthenticationUtil.getFullyAuthenticatedUser()))
         {
-            //Get the users drive credential if not provided;
-            credential = credential == null ? getCredential() : credential;
-
             unlockNode(nodeRef);
-
             try
             {
                 deleteContent(credential, nodeRef, file); // also undecorates node
@@ -1372,18 +1296,17 @@ public class GoogleDocsServiceImpl
             IOException
     {
         log.debug("Delete Google Doc for " + nodeRef);
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-
-        Drive drive = getDriveApi(credential);
-
-        boolean deleted = false;
+        Drive drive = getDriveApiWithCredentialCheck(credential);
+        boolean deleted;
 
         try
         {
             if (file != null)
             {
-                drive.files().delete(file.getId()).execute();
+                drive.files()
+                    .delete(file.getId())
+                    .setFields(ALL_PROPERTY_FIELDS)
+                    .execute();
 
                 // Delete the Working directory in Google Drive (if it exists....this should handle any migration issues)
                 deleteWorkingDirectory(credential, nodeRef);
@@ -1407,11 +1330,7 @@ public class GoogleDocsServiceImpl
             GoogleDocsRefreshTokenException,
             IOException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-
         File file = getDriveFile(credential, nodeRef);
-
         return deleteContent(credential, nodeRef, file);
     }
 
@@ -1429,11 +1348,7 @@ public class GoogleDocsServiceImpl
             GoogleDocsServiceException,
             IOException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-
         Revision revision = null;
-
         try
         {
             if (nodeService.getProperty(nodeRef, GoogleDocsModel.PROP_RESOURCE_ID) != null)
@@ -1458,15 +1373,15 @@ public class GoogleDocsServiceImpl
             GoogleDocsServiceException,
             IOException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-        Drive drive = getDriveApi(credential);
-
+        Drive drive = getDriveApiWithCredentialCheck(credential);
         Revision revision = null;
 
         try
         {
-            RevisionList revisionList = drive.revisions().list(file.getId()).execute();
+            RevisionList revisionList = drive.revisions()
+                .list(file.getId())
+                .setFields(ALL_PROPERTY_FIELDS)
+                .execute();
             List<Revision> fileRevisions = revisionList.getRevisions();
 
             if (fileRevisions != null)
@@ -1885,10 +1800,7 @@ public class GoogleDocsServiceImpl
             IOException
     {
         log.debug("Check for Concurrent Editors (Edits that have occured in the last " + idleThreshold + " seconds)");
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-        Drive drive = getDriveApi(credential);
-
+        Drive drive = getDriveApiWithCredentialCheck(credential);
         boolean concurrentChange = false;
 
         if (nodeService.hasAspect(nodeRef, GoogleDocsModel.ASPECT_EDITING_IN_GOOGLE))
@@ -1898,7 +1810,10 @@ public class GoogleDocsServiceImpl
 
             try
             {
-                RevisionList revisionList = drive.revisions().list(resourceID.substring(resourceID.lastIndexOf(':') + 1)).execute();
+                RevisionList revisionList = drive.revisions()
+                    .list(resourceID.substring(resourceID.lastIndexOf(':') + 1))
+                    .setFields(ALL_PROPERTY_FIELDS)
+                    .execute();
                 List<Revision> revisions = revisionList.getRevisions();
 
                 if (revisions.size() > 1)
@@ -2024,15 +1939,15 @@ public class GoogleDocsServiceImpl
             IOException
     {
         log.debug("Get Document list entry for resource " + resourceID.substring(resourceID.lastIndexOf(':') + 1));
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-        Drive drive = getDriveApi(credential);
-
-        File file = null;
+        Drive drive = getDriveApiWithCredentialCheck(credential);
+        File file;
 
         try
         {
-            file = drive.files().get(resourceID.substring(resourceID.lastIndexOf(':') + 1)).execute();
+            file = drive.files()
+                .get(resourceID.substring(resourceID.lastIndexOf(':') + 1))
+                .setFields(ALL_PROPERTY_FIELDS)
+                .execute();
         }
         catch (GoogleJsonResponseException e)
         {
@@ -2049,9 +1964,6 @@ public class GoogleDocsServiceImpl
             GoogleDocsRefreshTokenException,
             IOException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-
         String resourceID = nodeService.getProperty(nodeRef, GoogleDocsModel.PROP_RESOURCE_ID).toString();
         log.debug("Node " + nodeRef + " maps to Resource ID " + resourceID.substring(resourceID.lastIndexOf(':') + 1));
 
@@ -2070,15 +1982,16 @@ public class GoogleDocsServiceImpl
             IOException
     {
         log.debug("Get Google Docs user metadata");
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-        Drive drive = getDriveApi(credential);
 
-        User user = null;
+        Drive drive = getDriveApiWithCredentialCheck(credential);
+        User user;
 
         try
         {
-            About about = drive.about().get().execute();
+            About about = drive.about()
+                .get()
+                .setFields(ALL_PROPERTY_FIELDS)
+                .execute();
             user = about.getUser();
         }
         catch (GoogleJsonResponseException e)
@@ -2171,10 +2084,7 @@ public class GoogleDocsServiceImpl
             GoogleDocsServiceException,
             IOException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-        Drive drive = getDriveApi(credential);
-
+        Drive drive = getDriveApiWithCredentialCheck(credential);
         List<GooglePermission> permissionsMap = new ArrayList<GooglePermission>();
 
         try
@@ -2185,7 +2095,10 @@ public class GoogleDocsServiceImpl
             }
             User user = getDriveUser(credential);
             log.debug("Fetching permissions for file with resource ID " + resourceId);
-            PermissionList permissionList = drive.permissions().list(resourceId.substring(resourceId.lastIndexOf(':') + 1)).execute();
+            PermissionList permissionList = drive.permissions()
+                .list(resourceId.substring(resourceId.lastIndexOf(':') + 1))
+                .setFields(ALL_PROPERTY_FIELDS)
+                .execute();
 
             for (Permission permission : permissionList.getPermissions())
             {
@@ -2252,9 +2165,6 @@ public class GoogleDocsServiceImpl
             GoogleDocsServiceException,
             IOException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-
         List<GooglePermission> permissionsMap = getFilePermissions(credential, resourceId.substring(resourceId.lastIndexOf(':') + 1));
         Serializable permissionsList = buildPermissionsPropertyValue(permissionsMap);
         Map<QName, Serializable> aspectProperties = new HashMap<QName, Serializable>();
@@ -2348,9 +2258,7 @@ public class GoogleDocsServiceImpl
             GoogleDocsRefreshTokenException,
             IOException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-        Drive drive = getDriveApi(credential);
+        Drive drive = getDriveApiWithCredentialCheck(credential);
 
         if (log.isDebugEnabled())
         {
@@ -2409,7 +2317,10 @@ public class GoogleDocsServiceImpl
                 log.debug("Adding permission " + role + " for " + type + " " + p.getAuthorityId() + "");
             }
 
-            drive.permissions().create(file.getId(), new Permission().setRole(role).setType(type).setEmailAddress(p.getAuthorityId())).execute();
+            drive.permissions()
+                .create(file.getId(), new Permission().setRole(role).setType(type).setEmailAddress(p.getAuthorityId()))
+                .setFields(ALL_PROPERTY_FIELDS)
+                .execute();
         }
     }
 
@@ -2420,9 +2331,6 @@ public class GoogleDocsServiceImpl
             GoogleDocsServiceException,
             IOException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-
         File file = null;
 
         // Get or create the parent folder
@@ -2485,8 +2393,8 @@ public class GoogleDocsServiceImpl
             }
         }
 
-        //If the foldername is not set (GOOGLEDOCS-301) place it directly the working directory
-        if (folderName != null)
+        //If the folder name is not set (GOOGLEDOCS-301) place it directly the working directory
+        if (folderName != null && file != null)
         {
             file = createFolder(credential, file.getId(), folderName, null);
         }
@@ -2510,9 +2418,6 @@ public class GoogleDocsServiceImpl
             GoogleDocsServiceException,
             IOException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-
         if (nodeService.getProperty(nodeRef, GoogleDocsModel.PROP_DRIVE_WORKING_FOLDER) != null
             && StringUtils.isNotBlank(nodeService.getProperty(nodeRef, GoogleDocsModel.PROP_DRIVE_WORKING_FOLDER).toString()))
         {
@@ -2538,21 +2443,8 @@ public class GoogleDocsServiceImpl
             GoogleDocsServiceException,
             IOException
     {
-        if (credential == null)
-        {
-            credential = getCredential();
-        }
-
-        boolean exists = false;
-
         List<File> files = getFolder(credential, parentId, folderName);
-
-        if (!files.isEmpty())
-        {
-            exists = true;
-        }
-
-        return exists;
+        return !files.isEmpty();
     }
 
 
@@ -2572,28 +2464,35 @@ public class GoogleDocsServiceImpl
             GoogleDocsRefreshTokenException,
             IOException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
+        return createFileOnDrive(credential, parentId, folderName, description == null ? "" : description, GoogleDocsConstants.FOLDER_MIMETYPE);
+    }
 
-        //Set description to an empty string if not provided
-        description = description == null ? "" : description;
-
+    private File createFileOnDrive(Credential credential, String parentId, String fileName, String description, String mimeType)
+        throws GoogleDocsServiceException, IOException, GoogleDocsRefreshTokenException,
+        GoogleDocsAuthenticationException
+    {
+        Drive drive = getDriveApiWithCredentialCheck(credential);
         File file;
-        Drive drive = getDriveApi(credential);
-
         try
         {
-            file = new File().setMimeType(GoogleDocsConstants.FOLDER_MIMETYPE).setParents(Collections.singletonList(parentId));
-            file = drive.files().create(file).execute();
+            List<String> parents = Collections.singletonList(parentId);
+            file = new File()
+                .setName(fileName)
+                .setDescription(description)
+                .setMimeType(mimeType)
+                .setParents(parents);
+
+            file = drive.files()
+                .create(file)
+                .setFields(ALL_PROPERTY_FIELDS)
+                .execute();
         }
         catch (GoogleJsonResponseException e)
         {
             throw new GoogleDocsServiceException(e.getMessage(), e.getStatusCode(), e);
         }
-
         return file;
     }
-
 
     private List<File> getFolder(Credential credential, String parentId, String folderName)
             throws GoogleDocsAuthenticationException,
@@ -2601,14 +2500,9 @@ public class GoogleDocsServiceImpl
             GoogleDocsServiceException,
             IOException
     {
-        if (credential == null)
-        {
-            credential = getCredential();
-        }
-
+        Drive drive = getDriveApiWithCredentialCheck(credential);
         List<File> files = new ArrayList<File>();
         FileList fileList = null;
-        Drive drive = getDriveApi(credential);
 
         if (drive != null)
         {
@@ -2662,13 +2556,13 @@ public class GoogleDocsServiceImpl
             GoogleDocsServiceException,
             IOException
     {
-        //Get the users drive credential if not provided;
-        credential = credential == null ? getCredential() : credential;
-        Drive drive = getDriveApi(credential);
-
+        Drive drive = getDriveApiWithCredentialCheck(credential);
         try
         {
-            drive.files().delete(folderId).execute();
+            drive.files()
+                .delete(folderId)
+                .setFields(ALL_PROPERTY_FIELDS)
+                .execute();
         }
         catch (GoogleJsonResponseException e)
         {
