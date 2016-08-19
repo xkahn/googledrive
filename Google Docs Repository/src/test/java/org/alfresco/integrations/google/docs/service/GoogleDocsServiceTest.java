@@ -107,7 +107,7 @@ public class GoogleDocsServiceTest
     }
 
     /**
-     * Manually injects the spring beans into the GoogleDocsService
+     * Manually inject the spring beans into the GoogleDocsService
      */
     @Before public void setup()
     {
@@ -246,13 +246,14 @@ public class GoogleDocsServiceTest
         Credential.Builder credentialBuilder = mock(Credential.Builder.class);
         Credential credential = mock(Credential.class);
 
+        // Mock OAuth part
         Oauth2.Builder oauth2Builder = mock(Oauth2.Builder.class);
         Oauth2.Userinfo.Get oauth2UserInfoGet = mock(Oauth2.Userinfo.Get.class);
         Oauth2 userInfoService = mock(Oauth2.class);
         Oauth2.Userinfo oauth2UserInfo = mock(Oauth2.Userinfo.class);
         Userinfoplus userinfoplus = mock(Userinfoplus.class);
 
-
+        // Mock the credentialsInfo
         when(oauth2CredentialsStoreService.getPersonalOAuth2Credentials(anyString()))
             .thenReturn(credentialsInfo);
         when(credentialsInfo.getOAuthAccessToken()).thenReturn("access_token");
@@ -290,9 +291,24 @@ public class GoogleDocsServiceTest
         assertNotNull(retrievedCredential);
     }
 
-    @Test(expected = GoogleDocsServiceException.class) public void testGetCredentialTestConnectionThrowsGoogleDocsServiceException()
-        throws Exception
+    @Test public void testIsAuthenticatedBadFlowNullCredentialInfo()
     {
+        when(oauth2CredentialsStoreService.getPersonalOAuth2Credentials(anyString()))
+            .thenReturn(null);
+        boolean authenticated = googleDocsService.isAuthenticated();
+        assertFalse(authenticated);
+    }
 
+    @Test public void testIsAuthenticatedBadFlowGetCredentialThrowsException() throws Exception
+    {
+        OAuth2CredentialsInfo credentialsInfo = mock(OAuth2CredentialsInfoImpl.class);
+        Credential credential = mock(Credential.class);
+
+        when(oauth2CredentialsStoreService.getPersonalOAuth2Credentials(anyString()))
+            .thenReturn(credentialsInfo);
+        whenNew(Credential.Builder.class).withAnyArguments().thenThrow(new RuntimeException());
+
+        boolean authenticated = googleDocsService.isAuthenticated();
+        assertFalse(authenticated);
     }
 }
