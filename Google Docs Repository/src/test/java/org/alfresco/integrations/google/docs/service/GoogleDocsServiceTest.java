@@ -9,6 +9,7 @@ import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyLong;
 import static org.mockito.Matchers.anyString;
 import static org.powermock.api.mockito.PowerMockito.mock;
+import static org.powermock.api.mockito.PowerMockito.mockStatic;
 import static org.powermock.api.mockito.PowerMockito.when;
 import static org.powermock.api.mockito.PowerMockito.whenNew;
 
@@ -27,6 +28,7 @@ import org.alfresco.integrations.google.docs.exceptions.GoogleDocsServiceExcepti
 import org.alfresco.integrations.google.docs.exceptions.MustDowngradeFormatException;
 import org.alfresco.integrations.google.docs.exceptions.MustUpgradeFormatException;
 import org.alfresco.integrations.google.docs.utils.FileNameUtil;
+import org.alfresco.model.ContentModel;
 import org.alfresco.repo.model.filefolder.FileInfoImpl;
 import org.alfresco.repo.policy.BehaviourFilter;
 import org.alfresco.repo.remotecredentials.OAuth2CredentialsInfoImpl;
@@ -44,6 +46,7 @@ import org.alfresco.service.cmr.repository.NodeService;
 import org.alfresco.service.cmr.security.AuthorityService;
 import org.alfresco.service.cmr.security.PersonService;
 import org.alfresco.service.cmr.site.SiteService;
+import org.apache.commons.lang.StringUtils;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -73,7 +76,7 @@ import com.google.api.services.oauth2.model.Userinfoplus;
 @ContextConfiguration("classpath:test-context.xml") @PrepareForTest({ GoogleDocsServiceImpl.class,
     GoogleClientSecrets.class, GoogleJsonResponseException.class, Oauth2.Builder.class,
     Credential.class, Oauth2.Userinfo.class, Oauth2.Userinfo.Get.class, Userinfoplus.class,
-    NodeRef.class })
+    NodeRef.class, StringUtils.class })
 public class GoogleDocsServiceTest
 {
     @Mock private OAuth2CredentialsStoreService oauth2CredentialsStoreService;
@@ -307,5 +310,30 @@ public class GoogleDocsServiceTest
 
         boolean authenticated = googleDocsService.isAuthenticated();
         assertFalse(authenticated);
+    }
+
+    @Test public void testGetAuthenticateUrlHappyFlowBlankGoogleName() throws Exception
+    {
+        String state = "state";
+        String expectedUrl = "https://accounts.google.com/o/oauth2/auth?access_type=offline&approval_prompt=auto&client_id=fake_id.apps.googleusercontent.com&redirect_uri=http://www.alfresco.com/google-auth-return.html&response_type=code&scope=https://docs.google.com/feeds/%20https://www.googleapis.com/auth/drive.file%20https://www.googleapis.com/auth/drive%20https://www.googleapis.com/auth/userinfo.profile%20https://www.googleapis.com/auth/userinfo.email&state=state";
+
+        mockStatic(StringUtils.class);
+        when(StringUtils.isBlank(anyString())).thenReturn(true);
+
+        String authenticateUrl = googleDocsService.getAuthenticateUrl(state);
+        assertEquals(expectedUrl, authenticateUrl);
+    }
+
+    @Test public void testGetAuthenticateUrlHappyFlowExistingGoogleName() throws Exception
+    {
+        String state = "state";
+        String expectedUrl = "https://accounts.google.com/o/oauth2/auth?access_type=offline&approval_prompt=auto&client_id=fake_id.apps.googleusercontent.com&redirect_uri=http://www.alfresco.com/google-auth-return.html&response_type=code&scope=https://docs.google.com/feeds/%20https://www.googleapis.com/auth/drive.file%20https://www.googleapis.com/auth/drive%20https://www.googleapis.com/auth/userinfo.profile%20https://www.googleapis.com/auth/userinfo.email&state=state&login_hint=username";
+
+        NodeRef person = mock(NodeRef.class);
+        when(personService.getPerson(anyString())).thenReturn(person);
+        when(nodeService.getProperty(person, ContentModel.PROP_GOOGLEUSERNAME)).thenReturn("username");
+
+        String authenticateUrl = googleDocsService.getAuthenticateUrl(state);
+        assertEquals(expectedUrl, authenticateUrl);
     }
 }
