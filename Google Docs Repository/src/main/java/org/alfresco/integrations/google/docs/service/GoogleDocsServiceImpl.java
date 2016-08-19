@@ -32,30 +32,6 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import com.google.api.client.auth.oauth2.BearerToken;
-import com.google.api.client.auth.oauth2.ClientParametersAuthentication;
-import com.google.api.client.auth.oauth2.Credential;
-import com.google.api.client.auth.oauth2.TokenResponseException;
-import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow;
-import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeRequestUrl;
-import com.google.api.client.googleapis.auth.oauth2.GoogleClientSecrets;
-import com.google.api.client.googleapis.auth.oauth2.GoogleTokenResponse;
-import com.google.api.client.googleapis.json.GoogleJsonResponseException;
-import com.google.api.client.http.FileContent;
-import com.google.api.client.http.HttpTransport;
-import com.google.api.client.http.javanet.NetHttpTransport;
-import com.google.api.client.json.jackson2.JacksonFactory;
-import com.google.api.services.drive.Drive;
-import com.google.api.services.drive.model.About;
-import com.google.api.services.drive.model.File;
-import com.google.api.services.drive.model.FileList;
-import com.google.api.services.drive.model.Permission;
-import com.google.api.services.drive.model.PermissionList;
-import com.google.api.services.drive.model.Revision;
-import com.google.api.services.drive.model.RevisionList;
-import com.google.api.services.drive.model.User;
-import com.google.api.services.oauth2.Oauth2;
-import com.google.api.services.oauth2.model.Userinfoplus;
 import org.alfresco.integrations.google.docs.GoogleDocsConstants;
 import org.alfresco.integrations.google.docs.GoogleDocsModel;
 import org.alfresco.integrations.google.docs.exceptions.GoogleDocsAuthenticationException;
@@ -112,6 +88,31 @@ import org.apache.commons.logging.LogFactory;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.springframework.core.io.Resource;
+
+import com.google.api.client.auth.oauth2.BearerToken;
+import com.google.api.client.auth.oauth2.ClientParametersAuthentication;
+import com.google.api.client.auth.oauth2.Credential;
+import com.google.api.client.auth.oauth2.TokenResponseException;
+import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow;
+import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeRequestUrl;
+import com.google.api.client.googleapis.auth.oauth2.GoogleClientSecrets;
+import com.google.api.client.googleapis.auth.oauth2.GoogleTokenResponse;
+import com.google.api.client.googleapis.json.GoogleJsonResponseException;
+import com.google.api.client.http.FileContent;
+import com.google.api.client.http.HttpTransport;
+import com.google.api.client.http.javanet.NetHttpTransport;
+import com.google.api.client.json.jackson2.JacksonFactory;
+import com.google.api.services.drive.Drive;
+import com.google.api.services.drive.model.About;
+import com.google.api.services.drive.model.File;
+import com.google.api.services.drive.model.FileList;
+import com.google.api.services.drive.model.Permission;
+import com.google.api.services.drive.model.PermissionList;
+import com.google.api.services.drive.model.Revision;
+import com.google.api.services.drive.model.RevisionList;
+import com.google.api.services.drive.model.User;
+import com.google.api.services.oauth2.Oauth2;
+import com.google.api.services.oauth2.model.Userinfoplus;
 
 
 /**
@@ -498,16 +499,9 @@ public class GoogleDocsServiceImpl
         {
             log.debug("OAuth Credentials Exist for " + AuthenticationUtil.getFullyAuthenticatedUser());
 
-            Credential.Builder credentialBuilder = new Credential.Builder(
-                BearerToken.authorizationHeaderAccessMethod());
-            credentialBuilder.setJsonFactory(jsonFactory);
-            credentialBuilder.setTransport(httpTransport).setClientAuthentication(new ClientParametersAuthentication(clientSecrets.getDetails().getClientId(), clientSecrets.getDetails().getClientSecret()));
-            credentialBuilder.setTokenServerEncodedUrl(clientSecrets.getDetails().getTokenUri());
+            credential = new Credential.Builder(BearerToken.authorizationHeaderAccessMethod()).setJsonFactory(jsonFactory).setTransport(httpTransport).setClientAuthentication(new ClientParametersAuthentication(clientSecrets.getDetails().getClientId(), clientSecrets.getDetails().getClientSecret())).setTokenServerEncodedUrl(clientSecrets.getDetails().getTokenUri()).build();
+            credential.setAccessToken(credentialInfo.getOAuthAccessToken()).setRefreshToken(credentialInfo.getOAuthRefreshToken()).setExpirationTimeMilliseconds(credentialInfo.getOAuthTicketExpiresAt().getTime());
 
-            credential = credentialBuilder.build();
-            credential.setAccessToken(credentialInfo.getOAuthAccessToken());
-            credential.setRefreshToken(credentialInfo.getOAuthRefreshToken());
-            credential.setExpirationTimeMilliseconds(credentialInfo.getOAuthTicketExpiresAt().getTime());
             try
             {
                 log.debug("Test oAuth Credentials for " + AuthenticationUtil.getFullyAuthenticatedUser());

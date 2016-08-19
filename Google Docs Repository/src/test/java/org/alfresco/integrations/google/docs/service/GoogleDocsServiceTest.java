@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyLong;
 import static org.mockito.Matchers.anyString;
 import static org.powermock.api.mockito.PowerMockito.mock;
@@ -262,14 +263,12 @@ public class GoogleDocsServiceTest
             .thenReturn(new Date(1597670820000L)); // 8/17/20 1:27 PM
 
         // Mock credential obtaining
-        ClientParametersAuthentication clientParametersAuthentication = new ClientParametersAuthentication(
-            clientSecrets.getDetails().getClientId(), clientSecrets.getDetails().getClientSecret());
         String tokenUri = clientSecrets.getDetails().getTokenUri();
 
         whenNew(Credential.Builder.class).withAnyArguments().thenReturn(credentialBuilder);
         when(credentialBuilder.setJsonFactory(jsonFactory)).thenReturn(credentialBuilder);
         when(credentialBuilder.setTransport(httpTransport)).thenReturn(credentialBuilder);
-        when(credentialBuilder.setClientAuthentication(clientParametersAuthentication))
+        when(credentialBuilder.setClientAuthentication(any(ClientParametersAuthentication.class)))
             .thenReturn(credentialBuilder);
         when(credentialBuilder.setTokenServerEncodedUrl(tokenUri)).thenReturn(credentialBuilder);
         when(credentialBuilder.build()).thenReturn(credential);
@@ -302,8 +301,6 @@ public class GoogleDocsServiceTest
     @Test public void testIsAuthenticatedBadFlowGetCredentialThrowsException() throws Exception
     {
         OAuth2CredentialsInfo credentialsInfo = mock(OAuth2CredentialsInfoImpl.class);
-        Credential credential = mock(Credential.class);
-
         when(oauth2CredentialsStoreService.getPersonalOAuth2Credentials(anyString()))
             .thenReturn(credentialsInfo);
         whenNew(Credential.Builder.class).withAnyArguments().thenThrow(new RuntimeException());
