@@ -498,9 +498,16 @@ public class GoogleDocsServiceImpl
         {
             log.debug("OAuth Credentials Exist for " + AuthenticationUtil.getFullyAuthenticatedUser());
 
-            credential = new Credential.Builder(BearerToken.authorizationHeaderAccessMethod()).setJsonFactory(jsonFactory).setTransport(httpTransport).setClientAuthentication(new ClientParametersAuthentication(clientSecrets.getDetails().getClientId(), clientSecrets.getDetails().getClientSecret())).setTokenServerEncodedUrl(clientSecrets.getDetails().getTokenUri()).build();
-            credential.setAccessToken(credentialInfo.getOAuthAccessToken()).setRefreshToken(credentialInfo.getOAuthRefreshToken()).setExpirationTimeMilliseconds(credentialInfo.getOAuthTicketExpiresAt().getTime());
+            Credential.Builder credentialBuilder = new Credential.Builder(
+                BearerToken.authorizationHeaderAccessMethod());
+            credentialBuilder.setJsonFactory(jsonFactory);
+            credentialBuilder.setTransport(httpTransport).setClientAuthentication(new ClientParametersAuthentication(clientSecrets.getDetails().getClientId(), clientSecrets.getDetails().getClientSecret()));
+            credentialBuilder.setTokenServerEncodedUrl(clientSecrets.getDetails().getTokenUri());
 
+            credential = credentialBuilder.build();
+            credential.setAccessToken(credentialInfo.getOAuthAccessToken());
+            credential.setRefreshToken(credentialInfo.getOAuthRefreshToken());
+            credential.setExpirationTimeMilliseconds(credentialInfo.getOAuthTicketExpiresAt().getTime());
             try
             {
                 log.debug("Test oAuth Credentials for " + AuthenticationUtil.getFullyAuthenticatedUser());
@@ -520,10 +527,6 @@ public class GoogleDocsServiceImpl
             catch (TokenResponseException e)
             {
                 credential = getCredentialAfterRefresh();
-            }
-            catch (GoogleDocsServiceException e)
-            {
-                throw e;
             }
         }
 

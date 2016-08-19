@@ -20,6 +20,7 @@
         <entry key="application/msword" value="document"/>
         <entry key="application/vnd.oasis.opendocument.text" value="document"/>
         <entry key="text/plain" value="document"/>
+        <entry key="text/rtf" value="document"/>
         <entry key="text/csv" value="spreadsheet"/>
         <entry key="application/x-vnd.oasis.opendocument.spreadsheet" value="spreadsheet"/>
         <entry key="application/vnd.oasis.opendocument.spreadsheet" value="spreadsheet"/>
@@ -70,6 +71,11 @@
                value="application/vnd.openxmlformats-officedocument.wordprocessingml.document"/>
         <entry key="application/vnd.ms-powerpoint"
                value="application/vnd.openxmlformats-officedocument.presentationml.presentation"/>
+    </util:map>
+
+    <util:map id="downgradeMappings" map-class="java.util.HashMap">
+        <entry key="downgrade/mapping"
+               value="DOWNGRADED/MAPPING"/>
     </util:map>
 
 

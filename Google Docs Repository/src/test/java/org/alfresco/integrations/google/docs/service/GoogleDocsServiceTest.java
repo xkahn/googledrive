@@ -5,11 +5,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.Matchers.anyObject;
+import static org.mockito.Matchers.anyLong;
 import static org.mockito.Matchers.anyString;
-import static org.powermock.api.mockito.PowerMockito.doNothing;
-import static org.powermock.api.mockito.PowerMockito.doReturn;
-import static org.powermock.api.mockito.PowerMockito.doThrow;
 import static org.powermock.api.mockito.PowerMockito.mock;
 import static org.powermock.api.mockito.PowerMockito.when;
 import static org.powermock.api.mockito.PowerMockito.whenNew;
@@ -17,7 +14,9 @@ import static org.powermock.api.mockito.PowerMockito.whenNew;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 import javax.annotation.Resource;
 
@@ -27,6 +26,7 @@ import org.alfresco.integrations.google.docs.exceptions.GoogleDocsServiceExcepti
 import org.alfresco.integrations.google.docs.exceptions.MustDowngradeFormatException;
 import org.alfresco.integrations.google.docs.exceptions.MustUpgradeFormatException;
 import org.alfresco.integrations.google.docs.utils.FileNameUtil;
+import org.alfresco.repo.model.filefolder.FileInfoImpl;
 import org.alfresco.repo.policy.BehaviourFilter;
 import org.alfresco.repo.remotecredentials.OAuth2CredentialsInfoImpl;
 import org.alfresco.repo.tenant.TenantService;
@@ -36,7 +36,9 @@ import org.alfresco.service.cmr.lock.LockService;
 import org.alfresco.service.cmr.model.FileFolderService;
 import org.alfresco.service.cmr.oauth2.OAuth2CredentialsStoreService;
 import org.alfresco.service.cmr.remotecredentials.OAuth2CredentialsInfo;
+import org.alfresco.service.cmr.repository.ContentData;
 import org.alfresco.service.cmr.repository.MimetypeService;
+import org.alfresco.service.cmr.repository.NodeRef;
 import org.alfresco.service.cmr.repository.NodeService;
 import org.alfresco.service.cmr.security.AuthorityService;
 import org.alfresco.service.cmr.security.PersonService;
@@ -52,8 +54,10 @@ import org.powermock.modules.junit4.PowerMockRunnerDelegate;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
 
+import com.google.api.client.auth.oauth2.ClientParametersAuthentication;
 import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.googleapis.auth.oauth2.GoogleClientSecrets;
+import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.jackson2.JacksonFactory;
@@ -65,8 +69,10 @@ import com.google.api.services.oauth2.model.Userinfoplus;
  */
 @RunWith(PowerMockRunner.class)
 @PowerMockRunnerDelegate(SpringJUnit4ClassRunner.class)
-@ContextConfiguration("classpath:test-context.xml")
-@PrepareForTest({GoogleDocsServiceImpl.class, GoogleClientSecrets.class, Oauth2.Builder.class, Oauth2.Userinfo.class, Oauth2.Userinfo.Get.class, Userinfoplus.class})
+@ContextConfiguration("classpath:test-context.xml") @PrepareForTest({ GoogleDocsServiceImpl.class,
+    GoogleClientSecrets.class, GoogleJsonResponseException.class, Oauth2.Builder.class,
+    Credential.class, Oauth2.Userinfo.class, Oauth2.Userinfo.Get.class, Userinfoplus.class,
+    NodeRef.class })
 public class GoogleDocsServiceTest
 {
     @Mock private OAuth2CredentialsStoreService oauth2CredentialsStoreService;
@@ -86,6 +92,7 @@ public class GoogleDocsServiceTest
     @Resource(name = "importFormats") private Map<String, String> importFormats;
     @Resource(name = "exportFormats") private Map<String, Map<String, String>> exportFormats;
     @Resource(name = "upgradeMappings") private Map<String, String> upgradeMappings;
+    @Resource(name = "downgradeMappings") private Map<String, String> downgradeMappings;
 
     @Mock private HttpTransport httpTransport = new NetHttpTransport();
     @Mock private JacksonFactory jsonFactory = new JacksonFactory();
@@ -99,14 +106,125 @@ public class GoogleDocsServiceTest
 
     }
 
+    /**
+     * Manually injects the spring beans into the GoogleDocsService
+     */
     @Before public void setup()
     {
-        // Manually inject these fields into GoogleDocsService
         googleDocsService.setImportFormats(importFormats);
         googleDocsService.setExportFormats(exportFormats);
         googleDocsService.setUpgradeMappings(upgradeMappings);
+        googleDocsService.setDowngradeMappings(downgradeMappings);
     }
 
+    @Test public void testIsImportableBadFlow()
+    {
+        assertFalse(googleDocsService.isImportable("application/json"));
+    }
+
+    @Test public void testIsImportableHappyFlow()
+    {
+        for (String key : importFormats.keySet())
+        {
+            assertTrue(googleDocsService.isImportable(key));
+        }
+    }
+
+    /**
+     * Verifies that for all upgrade mappings isExportable throws MustUpgradeFormatException.
+     *
+     * @throws Exception
+     */
+    @Test public void testIsExportableMustUpgradeFlow() throws Exception
+    {
+        int numberOfUpgradeMappings = upgradeMappings.keySet().size();
+        int actualUpgradeMappingsDetected = 0;
+
+        for (String mapping : upgradeMappings.keySet())
+        {
+            try
+            {
+                googleDocsService.isExportable(mapping);
+            }
+            catch (MustUpgradeFormatException mufe)
+            {
+                actualUpgradeMappingsDetected++;
+            }
+        }
+
+        assertEquals(numberOfUpgradeMappings, actualUpgradeMappingsDetected);
+    }
+
+    /**
+     * Verifies isExportable throws MustDowngradeMapping when such mapping is provided.
+     *
+     * @throws Exception
+     */
+    @Test(expected = MustDowngradeFormatException.class) public void testIsExportableMustDowngradeFlow()
+        throws Exception
+    {
+        googleDocsService.isExportable("downgrade/mapping");
+    }
+
+    @Test public void testIsExportableHappyFlow() throws Exception
+    {
+        // Documents
+        Set<String> documentExportableTypes = exportFormats.get("document").keySet();
+        // Spreadsheets
+        Set<String> spreadsheetExportableTypes = exportFormats.get("spreadsheet").keySet();
+        // Presentations
+        Set<String> presentationExportableTypes = exportFormats.get("presentation").keySet();
+
+        // Must upgrade types
+        Set<String> mustUpgradeTypes = upgradeMappings.keySet();
+
+        Set<String> allExportableTypes = new HashSet<>();
+        allExportableTypes.addAll(documentExportableTypes);
+        allExportableTypes.addAll(spreadsheetExportableTypes);
+        allExportableTypes.addAll(presentationExportableTypes);
+        allExportableTypes.removeAll(mustUpgradeTypes);
+
+        for (String mimetype : allExportableTypes)
+        {
+            assertTrue(googleDocsService.isExportable(mimetype));
+        }
+    }
+
+    @Test public void testGetContentTypeHappyFlow()
+    {
+        NodeRef nodeRef = mock(NodeRef.class);
+        FileInfoImpl fileInfo = mock(FileInfoImpl.class);
+        ContentData contentData = mock(ContentData.class);
+
+        when(fileFolderService.getFileInfo(nodeRef)).thenReturn(fileInfo);
+        when(fileInfo.getContentData()).thenReturn(contentData);
+        when(contentData.getMimetype()).thenReturn("text/csv");
+        String contentType = googleDocsService.getContentType(nodeRef);
+        assertEquals("spreadsheet", contentType);
+    }
+
+    @Test public void testGetContentTypeBadFlow()
+    {
+        NodeRef nodeRef = mock(NodeRef.class);
+        FileInfoImpl fileInfo = mock(FileInfoImpl.class);
+        ContentData contentData = mock(ContentData.class);
+
+        when(fileFolderService.getFileInfo(nodeRef)).thenReturn(fileInfo);
+        when(fileInfo.getContentData()).thenReturn(contentData);
+        when(contentData.getMimetype()).thenReturn("I/DON'T/EXIST");
+        String contentType = googleDocsService.getContentType(nodeRef);
+        assertNull(contentType);
+    }
+
+    /**
+     * Verify that a null credential is returned when null credentialsInfo are provided.
+     * Very less likely to happen.
+     *
+     * @throws GoogleDocsAuthenticationException
+     * @throws GoogleDocsServiceException
+     * @throws IOException
+     * @throws GoogleDocsRefreshTokenException
+     */
     @Test public void testGetCredentialBadFlow()
         throws GoogleDocsAuthenticationException, GoogleDocsServiceException, IOException,
         GoogleDocsRefreshTokenException
@@ -117,6 +235,11 @@ public class GoogleDocsServiceTest
         assertNull(credential);
     }
 
+    /**
+     * Verifys the correct flow when "valid" data is obtained.
+     *
+     * @throws Exception
+     */
     @Test public void testGetCredentialHappyFlow() throws Exception
     {
         OAuth2CredentialsInfo credentialsInfo = mock(OAuth2CredentialsInfoImpl.class);
@@ -126,7 +249,7 @@ public class GoogleDocsServiceTest
         Oauth2.Builder oauth2Builder = mock(Oauth2.Builder.class);
         Oauth2.Userinfo.Get oauth2UserInfoGet = mock(Oauth2.Userinfo.Get.class);
         Oauth2 userInfoService = mock(Oauth2.class);
-        Oauth2.Userinfo oauth2Userinfo = mock(Oauth2.Userinfo.class);
+        Oauth2.Userinfo oauth2UserInfo = mock(Oauth2.Userinfo.class);
         Userinfoplus userinfoplus = mock(Userinfoplus.class);
 
 
@@ -138,16 +261,30 @@ public class GoogleDocsServiceTest
             .thenReturn(new Date(1597670820000L)); // 8/17/20 1:27 PM
 
         // Mock credential obtaining
+        ClientParametersAuthentication clientParametersAuthentication = new ClientParametersAuthentication(
+            clientSecrets.getDetails().getClientId(), clientSecrets.getDetails().getClientSecret());
+        String tokenUri = clientSecrets.getDetails().getTokenUri();
+
         whenNew(Credential.Builder.class).withAnyArguments().thenReturn(credentialBuilder);
+        when(credentialBuilder.setJsonFactory(jsonFactory)).thenReturn(credentialBuilder);
+        when(credentialBuilder.setTransport(httpTransport)).thenReturn(credentialBuilder);
+        when(credentialBuilder.setClientAuthentication(clientParametersAuthentication))
+            .thenReturn(credentialBuilder);
+        when(credentialBuilder.setTokenServerEncodedUrl(tokenUri)).thenReturn(credentialBuilder);
         when(credentialBuilder.build()).thenReturn(credential);
+        when(credential.setAccessToken(anyString())).thenReturn(credential);
+        when(credential.setRefreshToken(anyString())).thenReturn(credential);
+        when(credential.setExpirationTimeMilliseconds(anyLong())).thenReturn(credential);
 
         // Mock testConnection
         whenNew(Oauth2.Builder.class).withAnyArguments().thenReturn(oauth2Builder);
+        when(oauth2Builder.setApplicationName(anyString())).thenReturn(oauth2Builder);
         when(oauth2Builder.build()).thenReturn(userInfoService);
-        when(userInfoService.userinfo()).thenReturn(oauth2Userinfo);
-        when(oauth2Userinfo.get()).thenReturn(oauth2UserInfoGet);
+        when(userInfoService.userinfo()).thenReturn(oauth2UserInfo);
+        when(oauth2UserInfo.get()).thenReturn(oauth2UserInfoGet);
         when(oauth2UserInfoGet.execute()).thenReturn(userinfoplus);
-
+        when(oauth2UserInfoGet.setFields(anyString())).thenReturn(oauth2UserInfoGet);
+        when(userinfoplus.getId()).thenReturn("someId");
 
         Credential retrievedCredential = googleDocsService.getCredential();
         assertNotNull(retrievedCredential);
@@ -156,133 +293,6 @@ public class GoogleDocsServiceTest
     @Test(expected = GoogleDocsServiceException.class) public void testGetCredentialTestConnectionThrowsGoogleDocsServiceException()
         throws Exception
     {
-        OAuth2CredentialsInfo credentialsInfo = mock(OAuth2CredentialsInfoImpl.class);
 
-        when(oauth2CredentialsStoreService.getPersonalOAuth2Credentials(anyString()))
-            .thenReturn(credentialsInfo);
-
-        doSomeStuff(credentialsInfo);
-        when(credentialsInfo.getOAuthRefreshToken()).thenReturn("refresh_token");
-        when(credentialsInfo.getOAuthTicketExpiresAt())
-            .thenReturn(new Date(1597670820000L)); // 8/17/20 1:27 PM
-        doThrow(new GoogleDocsServiceException("GoogleDocsServiceException"))
-            .when(googleDocsService, "testConnection", anyObject());
-
-        Credential retrievedCredential = googleDocsService.getCredential();
-        assertNotNull(retrievedCredential);
-    }
-
-    private void doSomeStuff(OAuth2CredentialsInfo credentialsInfo)
-    {
-        when(credentialsInfo.getOAuthAccessToken()).thenReturn("access_token");
-    }
-
-    @Test public void testIsAuthenticatedBadFlowNullCredentialInfo()
-    {
-        when(oauth2CredentialsStoreService.getPersonalOAuth2Credentials(anyString()))
-            .thenReturn(null);
-        boolean authenticated = googleDocsService.isAuthenticated();
-        assertFalse(authenticated);
-    }
-
-    @Test(expected = MustUpgradeFormatException.class) public void testIsExportableMustUpgradeFlow()
-        throws Exception
-    {
-        doReturn(true).when(googleDocsService, "isUpgrade", anyString());
-        googleDocsService.isExportable(anyString());
-    }
-
-    @Test(expected = MustDowngradeFormatException.class) public void testIsExportableMustDowngradeFlow()
-        throws Exception
-    {
-        doReturn(false).when(googleDocsService, "isUpgrade", anyString());
-        doReturn(true).when(googleDocsService, "isDownGrade", anyString());
-        googleDocsService.isExportable(anyString());
-    }
-
-    @Test public void testIsExportableHappyFlow() throws Exception
-    {
-        doReturn(false).when(googleDocsService, "isUpgrade", anyString());
-        doReturn(false).when(googleDocsService, "isDownGrade", anyString());
-
-        // This one is failing. Should this be exportable or not?
-        googleDocsService.isExportable("text/rtf");
-
-        // Documents
-        Map<String, String> documentExportableTypes = exportFormats.get("document");
-        for (String key : documentExportableTypes.keySet())
-        {
-            assertTrue(googleDocsService.isExportable(key));
-        }
-
-        // Spreadsheets
-        Map<String, String> spreadsheetExportableTypes = exportFormats.get("spreadsheet");
-        for (String key : spreadsheetExportableTypes.keySet())
-        {
-            assertTrue(googleDocsService.isExportable(key));
-        }
-
-        // Presentations
-        Map<String, String> presentationExportableTypes = exportFormats.get("presentation");
-        for (String key : presentationExportableTypes.keySet())
-        {
-            assertTrue(googleDocsService.isExportable(key));
-        }
-    }
-
-    @Test public void testIsImportableBadFlow()
-    {
-        assertFalse(googleDocsService.isImportable("application/json"));
-    }
-
-    @Test public void testIsImportableHappyFlow()
-    {
-        for (String key : importFormats.keySet()) {
-            assertTrue(googleDocsService.isImportable(key));
-        }
-    }
-
-    @Test public void testGetAuthenticateUrlBadFlow() throws IOException
-    {
-        String authenticateUrl = googleDocsService.getAuthenticateUrl(null);
-        assertNull(authenticateUrl);
-    }
-
-    @Test public void testGetAuthenticateUrlHappyFlowBlankGoogleName() throws Exception
-    {
-        String state = "state";
-        String expectedUrl = "https://accounts.google.com/o/oauth2/auth?access_type=offline&approval_prompt=auto&client_id=fake_id.apps.googleusercontent.com&redirect_uri=http://www.alfresco.com/google-auth-return.html&response_type=code&scope=https://docs.google.com/feeds/%20https://www.googleapis.com/auth/drive.file%20https://www.googleapis.com/auth/drive%20https://www.googleapis.com/auth/userinfo.profile%20https://www.googleapis.com/auth/userinfo.email&state=state";
-        doReturn("").when(googleDocsService, "getGoogleUserName");
-
-        String authenticateUrl = googleDocsService.getAuthenticateUrl(state);
-        assertEquals(expectedUrl, authenticateUrl);
-    }
-
-    @Test public void testGetAuthenticateUrlHappyFlowExistingGoogleName() throws Exception
-    {
-        String state = "state";
-        String expectedUrl = "https://accounts.google.com/o/oauth2/auth?access_type=offline&approval_prompt=auto&client_id=fake_id.apps.googleusercontent.com&redirect_uri=http://www.alfresco.com/google-auth-return.html&response_type=code&scope=https://docs.google.com/feeds/%20https://www.googleapis.com/auth/drive.file%20https://www.googleapis.com/auth/drive%20https://www.googleapis.com/auth/userinfo.profile%20https://www.googleapis.com/auth/userinfo.email&state=state&login_hint=username";
-        doReturn("username").when(googleDocsService, "getGoogleUserName");
-
-        String authenticateUrl = googleDocsService.getAuthenticateUrl(state);
-        assertEquals(expectedUrl, authenticateUrl);
-    }
-
-    //    @Test public void testCompleteAuthenticationBadFlow() throws Exception
-    //    {
-    //        googleDocsService.completeAuthentication("string");
-    //    }
-
-    @Test public void testIsAutheticatedHappyFlow() throws Exception
-    {
-        OAuth2CredentialsInfo credentialsInfo = mock(OAuth2CredentialsInfoImpl.class);
-
-        when(oauth2CredentialsStoreService.getPersonalOAuth2Credentials(anyString()))
-            .thenReturn(credentialsInfo);
-        when(googleDocsService.getCredential()).thenReturn(null);
-        //        doThrow(new IOException()).when(googleDocsService).getCredential();
-        //        doReturn(null).when(googleDocsService).isAuthenticated();
-
-        boolean authenticated = googleDocsService.isAuthenticated();
     }
 }
