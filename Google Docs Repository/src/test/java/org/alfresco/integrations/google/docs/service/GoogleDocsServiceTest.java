@@ -121,11 +121,17 @@ public class GoogleDocsServiceTest
         googleDocsService.setDowngradeMappings(downgradeMappings);
     }
 
+    /**
+     * Verifies that an unknwon mimetype is not importable.
+     */
     @Test public void testIsImportableBadFlow()
     {
         assertFalse(googleDocsService.isImportable("application/json"));
     }
 
+    /**
+     * Verifies that all known mimetypes are importable.
+     */
     @Test public void testIsImportableHappyFlow()
     {
         for (String key : importFormats.keySet())
@@ -170,6 +176,10 @@ public class GoogleDocsServiceTest
         googleDocsService.isExportable("downgrade/mapping");
     }
 
+    /**
+     * Verifies that all (allMappings / mustUpgradeMappings) are exportable.
+     * @throws Exception
+     */
     @Test public void testIsExportableHappyFlow() throws Exception
     {
         // Documents
@@ -178,7 +188,6 @@ public class GoogleDocsServiceTest
         Set<String> spreadsheetExportableTypes = exportFormats.get("spreadsheet").keySet();
         // Presentations
         Set<String> presentationExportableTypes = exportFormats.get("presentation").keySet();
-
         // Must upgrade types
         Set<String> mustUpgradeTypes = upgradeMappings.keySet();
 
@@ -194,6 +203,9 @@ public class GoogleDocsServiceTest
         }
     }
 
+    /**
+     * Verifies that for a known mimetype the correct content type is returned.
+     */
     @Test public void testGetContentTypeHappyFlow()
     {
         NodeRef nodeRef = mock(NodeRef.class);
@@ -207,6 +219,9 @@ public class GoogleDocsServiceTest
         assertEquals("spreadsheet", contentType);
     }
 
+    /**
+     * Verifies that a null content type is returned when providing an unknown mimetype.
+     */
     @Test public void testGetContentTypeBadFlow()
     {
         NodeRef nodeRef = mock(NodeRef.class);
@@ -293,6 +308,9 @@ public class GoogleDocsServiceTest
         assertNotNull(retrievedCredential);
     }
 
+    /**
+     * Verifies that isAuthenticated returns false when providing a null CredentialInfo.
+     */
     @Test public void testIsAuthenticatedBadFlowNullCredentialInfo()
     {
         when(oauth2CredentialsStoreService.getPersonalOAuth2Credentials(anyString()))
@@ -301,6 +319,10 @@ public class GoogleDocsServiceTest
         assertFalse(authenticated);
     }
 
+    /**
+     * Verifies that isAuthenticated returns false when getCredential throws exception.
+     * @throws Exception
+     */
     @Test public void testIsAuthenticatedBadFlowGetCredentialThrowsException() throws Exception
     {
         OAuth2CredentialsInfo credentialsInfo = mock(OAuth2CredentialsInfoImpl.class);
@@ -312,6 +334,10 @@ public class GoogleDocsServiceTest
         assertFalse(authenticated);
     }
 
+    /**
+     * Verifies correct URL is returned when getGoogleUserName returns "".
+     * @throws Exception
+     */
     @Test public void testGetAuthenticateUrlHappyFlowBlankGoogleName() throws Exception
     {
         String state = "state";
@@ -324,6 +350,10 @@ public class GoogleDocsServiceTest
         assertEquals(expectedUrl, authenticateUrl);
     }
 
+    /**
+     * Verifies correct URL (containing username) is returned when getGoogleUserName returns a vald username.
+     * @throws Exception
+     */
     @Test public void testGetAuthenticateUrlHappyFlowExistingGoogleName() throws Exception
     {
         String state = "state";
@@ -335,5 +365,13 @@ public class GoogleDocsServiceTest
 
         String authenticateUrl = googleDocsService.getAuthenticateUrl(state);
         assertEquals(expectedUrl, authenticateUrl);
+    }
+
+    /**
+     * Verifies a null URL is returned when providing a null state.
+     */
+    @Test public void testGetAuthenticateUrlBadFlow() throws IOException
+    {
+        assertNull(googleDocsService.getAuthenticateUrl(null));
     }
 }
